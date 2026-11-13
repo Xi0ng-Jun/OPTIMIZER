@@ -1,0 +1,11 @@
+{
+  "mcpServers": {
+    "silicon-notebook": {
+      "type": "http",
+      "url": "${SILICON_NOTEBOOK_MCP_URL}",
+      "headers": {
+        "Authorization": "Bearer ${SILICON_NOTEBOOK_AGENT_TOKEN}"
+      }
+    }
+  }
+}

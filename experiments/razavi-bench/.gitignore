@@ -1,0 +1,4 @@
+# Run outputs hold model answers and retrieved notebook text; env.sh holds credentials.
+runs/
+env.sh
+__pycache__/
