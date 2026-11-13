@@ -10,7 +10,7 @@
 | 工具 | 读文件、写文件 | 相同，加 silicon-notebook 的 MCP 工具 |
 | 提示词 | — | 多一段：先查 notebook，`ask` 只用 `output="evidence"` |
 
-每题答 3 次。裁判沿用基准自带的 `tools/evaluate_answers.py`（提示词和评分规则不变），裁判模型换成内部模型，并先用基准已公开的答案校准。结果是两组的分数和按题配对的差值。
+每题答 3 次。裁判沿用基准自带的 `tools/evaluate_answers.py`（提示词、评分规则、解析和重试都不变），由 `judge.py` 把其中的网络请求换成 Claude Code 所用的接口，裁判模型用内部模型，并先用基准已公开的答案校准。结果是两组的分数和按题配对的差值。
 
 这个结果不能上榜：榜单规则是不带工具、不带资料。可以和榜单上同型号的裸答分数并列作参照（GLM 5.3 Flash：总分 79.8，Part 1 93.3，Part 2 59.6，2026-11-10 数据）。
 
@@ -20,6 +20,7 @@
 |---|---|
 | `run_agent.py` | 跑一组：每个（题目，轮次）在只含题干和图的临时目录里调用一次 `claude -p`，收 `answer.md` |
 | `probe.py` | 三项检查：图片是否送到模型、MCP 是否连通、notebook 里有没有题目出处的那两篇文章 |
+| `judge.py` | 运行基准自带的裁判脚本，只把网络请求换成 Anthropic 格式，复用答题所用的地址和密钥 |
 | `calibrate.py` | 内部裁判与 Razavi 本人打分、与官方裁判打分的一致程度 |
 | `summarize.py` | 两组分数、配对差值和置信区间、notebook 使用情况、剔除泄题运行后的分数 |
 | `mcp.notebook.json` / `mcp.empty.json` | 两组的 MCP 配置；地址和 token 用环境变量占位，文件里没有真实值 |
@@ -40,7 +41,7 @@
 **检查**
 
 ```bash
-python3 -m unittest discover -s $X/tests
+RB_BENCH="$RB_BENCH" python3 -m unittest discover -s $X/tests
 python3 $X/probe.py image --model "$RB_MODEL" --small-model "$RB_SMALL_MODEL"
 python3 $X/probe.py mcp   --model "$RB_MODEL" --small-model "$RB_SMALL_MODEL"
 python3 $X/probe.py leak  --model "$RB_MODEL" --small-model "$RB_SMALL_MODEL"
@@ -49,7 +50,7 @@ python3 $X/probe.py leak  --model "$RB_MODEL" --small-model "$RB_SMALL_MODEL"
 **校准裁判**（各 150 次评分调用）
 
 ```bash
-J="python3 $RB_BENCH/tools/evaluate_answers.py --repo $RB_BENCH --max-tokens 16000 --timeout 600 --resume"
+J="python3 $X/judge.py --bench $RB_BENCH --resume"
 CAL="$RB_OUT/calibration"; mkdir -p "$CAL"
 A1="$RB_BENCH/experiments/2026-11-09-razavi-calibration/article_answers.jsonl"
 A2="$RB_BENCH/experiments/2026-11-09-question-only-rerun/answers_selfhosted_glm.jsonl"

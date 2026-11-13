@@ -2,7 +2,8 @@
 # it, fill it in, and `source` it in the shell before any command of this experiment.
 # The filled-in file holds credentials and the service address: never commit it or paste it.
 
-# Claude Code's API group for the answer model: the two values of the `claude-spec` alias.
+# The API group that serves both the answer model and the judge: the two values of the
+# `claude-spec` alias.
 export ANTHROPIC_BASE_URL=""
 export ANTHROPIC_AUTH_TOKEN=""
 
@@ -11,10 +12,7 @@ export ANTHROPIC_AUTH_TOKEN=""
 export SILICON_NOTEBOOK_MCP_URL=""
 export SILICON_NOTEBOOK_AGENT_TOKEN=""
 
-# Judge: the same API group's OpenAI-compatible endpoint. The URL is the full chat-completions
-# address (it ends in /chat/completions).
-export RAZAVI_JUDGE_API_URL=""
-export RAZAVI_JUDGE_API_KEY=""
+# Judge model, called through the same API group.
 export RAZAVI_JUDGE_MODEL="GLM-5.3-spec"
 
 # Answer model, and the model Claude Code uses for its own background calls.

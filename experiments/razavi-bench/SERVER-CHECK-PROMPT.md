@@ -15,11 +15,11 @@
 
 步骤：
 
-1. 环境。逐个检查这些变量是否已设置：`ANTHROPIC_BASE_URL`、`ANTHROPIC_AUTH_TOKEN`、`SILICON_NOTEBOOK_MCP_URL`、`SILICON_NOTEBOOK_AGENT_TOKEN`、`RAZAVI_JUDGE_API_URL`、`RAZAVI_JUDGE_API_KEY`、`RAZAVI_JUDGE_MODEL`、`RB_MODEL`、`RB_SMALL_MODEL`、`RB_BENCH`、`RB_OUT`。报告 `claude --version` 和 `python3 --version`。运行 `claude --help`，确认这几个选项都存在：`--tools`、`--mcp-config`、`--strict-mcp-config`、`--permission-mode`、`--allowedTools`、`--output-format`。缺任何一个就停下报告。
+1. 环境。逐个检查这些变量是否已设置：`ANTHROPIC_BASE_URL`、`ANTHROPIC_AUTH_TOKEN`、`SILICON_NOTEBOOK_MCP_URL`、`SILICON_NOTEBOOK_AGENT_TOKEN`、`RAZAVI_JUDGE_MODEL`、`RB_MODEL`、`RB_SMALL_MODEL`、`RB_BENCH`、`RB_OUT`。报告 `claude --version` 和 `python3 --version`。运行 `claude --help`，确认这几个选项都存在：`--tools`、`--mcp-config`、`--strict-mcp-config`、`--permission-mode`、`--allowedTools`、`--output-format`。缺任何一个就停下报告。
 
 2. 基准。如果 `$RB_BENCH` 不存在，执行 `git clone https://github.com/Arcadia-1/razavi-bench "$RB_BENCH"`。报告 `git -C "$RB_BENCH" rev-parse HEAD` 和 `wc -l < "$RB_BENCH/data/tasks.jsonl"`（应为 50）。
 
-3. 离线测试：`python3 -m unittest discover -s $X/tests`，应全部通过。
+3. 离线测试：`RB_BENCH="$RB_BENCH" python3 -m unittest discover -s $X/tests`，应全部通过且没有跳过。
 
 4. 三项探针，依次运行并报告各自的完整输出：
 
@@ -34,7 +34,7 @@
 5. 裁判试评 3 条：
 
    ```bash
-   J="python3 $RB_BENCH/tools/evaluate_answers.py --repo $RB_BENCH --max-tokens 16000 --timeout 600 --resume"
+   J="python3 $X/judge.py --bench $RB_BENCH --resume"
    CAL="$RB_OUT/calibration"; mkdir -p "$CAL"
    A1="$RB_BENCH/experiments/2026-11-09-razavi-calibration/article_answers.jsonl"
    $J --input "$A1" --output "$CAL/smoke.scores.jsonl" --limit 3
