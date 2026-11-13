@@ -48,7 +48,10 @@ emit({"type": "system", "subtype": "init", "model": argv[argv.index("--model") +
       "mcp_servers": [{"name": server, "status": "connected" if connected else "failed"}] if server else []})
 if (cwd / "figure-1.png").exists() and not (mode == "lazy_once" and calls == 0):
     use("Read", {"file_path": str(cwd / "figure-1.png")}, [{"type": "image"}])
-if connected and mode != "no_notebook":
+if connected and "list_notebooks" in prompt:  # the connection probe
+    use(f"mcp__{server}__list_notebooks", {}, [{"type": "text", "text": "one notebook"}])
+    use(f"mcp__{server}__get_notebook", {}, [{"type": "text", "text": "12 sources"}])
+elif connected and mode != "no_notebook":
     use(f"mcp__{server}__ask", {"question": "q", "output": "evidence"},
         [{"type": "text", "text": "source_title: A Textbook; text: gm = 2 ID / Vov"}])
 answer = "The gain doubles."

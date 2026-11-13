@@ -54,8 +54,10 @@ class Judge(unittest.TestCase):
             answers, scores = Path(tmp) / "answers.jsonl", Path(tmp) / "scores.jsonl"
             answers.write_text("".join(json.dumps({"task_slug": t["task_slug"], "task_path": t["task_path"], "rollout": 1,
                                                    "model_name": "m__control", "answer": "It doubles."}) + "\n" for t in tasks))
-            env = {**os.environ, "ANTHROPIC_BASE_URL": f"http://127.0.0.1:{server.server_port}/",
-                   "ANTHROPIC_AUTH_TOKEN": "secret", "RAZAVI_JUDGE_MODEL": "judge-model", "no_proxy": "127.0.0.1"}
+            # The judge's own API group wins over the one the answering runs use.
+            env = {**os.environ, "ANTHROPIC_BASE_URL": "http://127.0.0.1:9/", "ANTHROPIC_AUTH_TOKEN": "other-group",
+                   "RAZAVI_JUDGE_BASE_URL": f"http://127.0.0.1:{server.server_port}/",
+                   "RAZAVI_JUDGE_AUTH_TOKEN": "secret", "RAZAVI_JUDGE_MODEL": "judge-model", "no_proxy": "127.0.0.1"}
             done = subprocess.run([sys.executable, str(ROOT / "judge.py"), "--bench", str(BENCH), "--input", str(answers),
                                    "--output", str(scores), "--concurrency", "1"], env=env, capture_output=True, text=True)
             self.assertEqual(done.returncode, 0, done.stderr)

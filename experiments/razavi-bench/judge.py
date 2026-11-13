@@ -3,11 +3,12 @@
 
 The benchmark's tools/evaluate_answers.py speaks OpenAI's API formats. This runs that script
 unchanged (its judge prompt, rubric, parsing, retries, resume and output files) and replaces
-only the HTTP call with an Anthropic-format one, so the judge needs nothing beyond what the
-answering runs already have:
+only the HTTP call with an Anthropic-format one, so the judge is reached the way Claude Code
+reaches its models:
 
-    ANTHROPIC_BASE_URL, ANTHROPIC_AUTH_TOKEN    the API group
-    RAZAVI_JUDGE_MODEL                          the judge model
+    RAZAVI_JUDGE_MODEL                                 the judge model
+    RAZAVI_JUDGE_BASE_URL, RAZAVI_JUDGE_AUTH_TOKEN     the API group that serves it; when unset,
+                                                       ANTHROPIC_BASE_URL and ANTHROPIC_AUTH_TOKEN
 
     judge.py --bench <razavi-bench> --input answers.jsonl --output scores.jsonl [--resume] [--limit N]
 
@@ -54,9 +55,10 @@ def main() -> None:
     parser = argparse.ArgumentParser(description=__doc__, formatter_class=argparse.RawDescriptionHelpFormatter)
     parser.add_argument("--bench", type=Path, required=True, help="local clone of razavi-bench")
     args, rest = parser.parse_known_args()
-    base, model = os.environ.get("ANTHROPIC_BASE_URL", ""), os.environ.get("RAZAVI_JUDGE_MODEL", "")
-    missing = [name for name, value in (("ANTHROPIC_BASE_URL", base), ("ANTHROPIC_AUTH_TOKEN", os.environ.get("ANTHROPIC_AUTH_TOKEN")),
-                                        ("RAZAVI_JUDGE_MODEL", model)) if not value]
+    own = bool(os.environ.get("RAZAVI_JUDGE_BASE_URL"))  # the judge's own API group, as a pair
+    base_env, key_env = ("RAZAVI_JUDGE_BASE_URL", "RAZAVI_JUDGE_AUTH_TOKEN") if own else ("ANTHROPIC_BASE_URL", "ANTHROPIC_AUTH_TOKEN")
+    base, model = os.environ.get(base_env, ""), os.environ.get("RAZAVI_JUDGE_MODEL", "")
+    missing = [name for name, value in ((base_env, base), (key_env, os.environ.get(key_env)), ("RAZAVI_JUDGE_MODEL", model)) if not value]
     if missing:
         raise SystemExit("missing environment: " + ", ".join(missing))
     script = args.bench.resolve() / "tools" / "evaluate_answers.py"
@@ -65,7 +67,7 @@ def main() -> None:
     spec.loader.exec_module(stock)
     stock.call_judge_once = lambda **kwargs: messages_call(system=stock.JUDGE_SYSTEM, **kwargs)
     sys.argv = [str(script), "--repo", str(args.bench.resolve()),
-                "--api-url", base.rstrip("/") + "/v1/messages", "--api-key-env", "ANTHROPIC_AUTH_TOKEN",
+                "--api-url", base.rstrip("/") + "/v1/messages", "--api-key-env", key_env,
                 "--model", model, "--max-tokens", "16000", "--timeout", "600", *rest]
     stock.main()
 

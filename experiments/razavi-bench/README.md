@@ -12,7 +12,7 @@
 
 每题答 3 次。裁判沿用基准自带的 `tools/evaluate_answers.py`（提示词、评分规则、解析和重试都不变），由 `judge.py` 把其中的网络请求换成 Claude Code 所用的接口，裁判模型用内部模型，并先用基准已公开的答案校准。结果是两组的分数和按题配对的差值。
 
-这个结果不能上榜：榜单规则是不带工具、不带资料。可以和榜单上同型号的裸答分数并列作参照（GLM 5.3 Flash：总分 79.8，Part 1 93.3，Part 2 59.6，2026-11-10 数据）。
+这个结果不能上榜：榜单规则是不带工具、不带资料。可以和榜单上同型号的裸答分数并列作参照（2026-11-10 数据，总分 / Part 1 / Part 2：DeepSeek V4.1 Flash 1017 为 77.3 / 83.9 / 67.5，0910 版为 69.7 / 74.4 / 62.5；GLM 5.3 Flash 为 79.8 / 93.3 / 59.6）。内部部署对应哪个版本需要另行确认。
 
 ## 文件
 
@@ -22,6 +22,7 @@
 | `probe.py` | 三项检查：图片是否送到模型、MCP 是否连通、notebook 里有没有题目出处的那两篇文章 |
 | `judge.py` | 运行基准自带的裁判脚本，只把网络请求换成 Anthropic 格式，复用答题所用的地址和密钥 |
 | `calibrate.py` | 内部裁判与 Razavi 本人打分、与官方裁判打分的一致程度 |
+| `check.sh` / `run.sh` | 运行前的六步检查；正式运行（答题、评分、汇总） |
 | `summarize.py` | 两组分数、配对差值和置信区间、notebook 使用情况、剔除泄题运行后的分数 |
 | `mcp.notebook.json` / `mcp.empty.json` | 两组的 MCP 配置；地址和 token 用环境变量占位，文件里没有真实值 |
 | `env.example.sh` | 环境变量模板 |
@@ -31,54 +32,43 @@
 ## 准备（一次）
 
 1. 在 silicon-notebook 的「Agent 接入」页面签发 token：新建一个 Profile；默认笔记本和白名单都只选被测的笔记本；权限只勾「读取」和「问答」；不开限时回答链接。
-2. 把 `env.example.sh` 复制到仓库外（如 `~/.config/razavi-bench/env.sh`），`chmod 600`，填好，之后每次先 `source` 它。
-3. 克隆基准到仓库外：`git clone https://github.com/Arcadia-1/razavi-bench "$RB_BENCH"`，记下 `git -C "$RB_BENCH" rev-parse HEAD`。校准和正式评分必须用同一个提交。
+2. 把 `env.example.sh` 复制到仓库外（如 `~/.config/razavi-bench/env.sh`），`chmod 600`，填好，之后每次先 `source` 它。答题模型和裁判模型可以在不同的 API 组：`ANTHROPIC_*` 是答题模型所在的组，`RAZAVI_JUDGE_BASE_URL` 和 `RAZAVI_JUDGE_AUTH_TOKEN` 是裁判所在的组。
+3. 克隆基准到仓库外：`git clone https://github.com/Arcadia-1/razavi-bench "$RB_BENCH"`。校准和正式评分必须用同一个提交。
+
+评测服务器上的实测情况（2026-11-13）：`GLM-5.3-spec` 只收文字，只能当裁判，且只在 spec 组；`DeepSeek-V4.1-Flash-special` 在 mine 组能读图，用作答题模型。
 
 ## 步骤
 
-下面的命令都在仓库根目录执行，`X=experiments/razavi-bench`。
+都在仓库根目录、普通终端里执行，先 `source` 环境变量文件。
 
-**检查**
-
-```bash
-RB_BENCH="$RB_BENCH" python3 -m unittest discover -s $X/tests
-python3 $X/probe.py image --model "$RB_MODEL" --small-model "$RB_SMALL_MODEL"
-python3 $X/probe.py mcp   --model "$RB_MODEL" --small-model "$RB_SMALL_MODEL"
-python3 $X/probe.py leak  --model "$RB_MODEL" --small-model "$RB_SMALL_MODEL"
-```
-
-**校准裁判**（各 150 次评分调用）
+**检查**：六步依次进行，任何一步失败就停。
 
 ```bash
-J="python3 $X/judge.py --bench $RB_BENCH --resume"
-CAL="$RB_OUT/calibration"; mkdir -p "$CAL"
-A1="$RB_BENCH/experiments/2026-11-09-razavi-calibration/article_answers.jsonl"
-A2="$RB_BENCH/experiments/2026-11-09-question-only-rerun/answers_selfhosted_glm.jsonl"
-$J --input "$A1" --output "$CAL/article.scores.jsonl"
-$J --input "$A2" --output "$CAL/glm.scores.jsonl"
-python3 $X/calibrate.py razavi --article-answers "$A1" --scores "$CAL/article.scores.jsonl"
-python3 $X/calibrate.py judge --reference "$RB_BENCH/experiments" --scores "$CAL/glm.scores.jsonl"
+mkdir -p "$RB_OUT"
+bash experiments/razavi-bench/check.sh 2>&1 | tee -a "$RB_OUT/check.log"
 ```
 
-**答题**（可中断，重跑同一条命令会跳过已有答案）
+| 步 | 内容 | 通过的标志 |
+|---|---|---|
+| 1 | 图片是否送到答题模型 | `PASS` |
+| 2 | notebook 的 MCP 是否连通 | `PASS` |
+| 3 | notebook 里有没有题目出处的两篇文章 | 看它的回答 |
+| 4 | 裁判试评 3 条 | 三条都有分数 |
+| 5 | 校准裁判（300 次评分） | 两张对比表 |
+| 6 | 3 道题两组各跑一轮，评分并汇总 | 汇总表和每次运行的工具调用 |
+
+失败后修好了再跑同一条命令，已完成的评分和答案会保留。`RB_FROM=5 bash ...` 从第 5 步开始。
+
+**正式运行**：50 题 × 3 轮 × 2 组，然后评分、汇总。可中断，重跑同一条命令会接着做。
 
 ```bash
-for arm in control notebook; do
-  python3 $X/run_agent.py --bench "$RB_BENCH" --arm $arm --out "$RB_OUT" \
-    --model "$RB_MODEL" --small-model "$RB_SMALL_MODEL" --concurrency 2
-done
+nohup bash experiments/razavi-bench/run.sh >> "$RB_OUT/run.log" 2>&1 &
+tail -f "$RB_OUT/run.log"
 ```
 
-试跑时加 `--rollout 1 --task-slug <slug>`（可重复）。
+并发用 `RB_CONCURRENCY` 调（默认 2）。结果在 `$RB_OUT/full/summary.md`。
 
-**评分与汇总**
-
-```bash
-for arm in control notebook; do
-  $J --input "$RB_OUT/$arm/answers.jsonl" --output "$RB_OUT/$arm/scores.jsonl"
-done
-python3 $X/summarize.py --bench "$RB_BENCH" --out "$RB_OUT" --leak-pattern 'Analog Design Experiments With AI'
-```
+各脚本也可以单独调用，参数见各自的 `--help`。
 
 ## 运行规则
 

@@ -2,8 +2,8 @@
 # it, fill it in, and `source` it in the shell before any command of this experiment.
 # The filled-in file holds credentials and the service address: never commit it or paste it.
 
-# The API group that serves both the answer model and the judge: the two values of the
-# `claude-spec` alias.
+# The API group that serves the answer model (it must accept images: `probe.py image`).
+# On the evaluation server: the two values of the `claude-mine` alias.
 export ANTHROPIC_BASE_URL=""
 export ANTHROPIC_AUTH_TOKEN=""
 
@@ -12,12 +12,16 @@ export ANTHROPIC_AUTH_TOKEN=""
 export SILICON_NOTEBOOK_MCP_URL=""
 export SILICON_NOTEBOOK_AGENT_TOKEN=""
 
-# Judge model, called through the same API group.
+# Judge model and the API group that serves it (text only is enough). Leave the two group
+# values empty when the judge is in the same group as the answer model.
+# On the evaluation server: the two values of the `claude-spec` alias.
 export RAZAVI_JUDGE_MODEL="GLM-5.3-spec"
+export RAZAVI_JUDGE_BASE_URL=""
+export RAZAVI_JUDGE_AUTH_TOKEN=""
 
 # Answer model, and the model Claude Code uses for its own background calls.
-export RB_MODEL="GLM-5.3-spec"
-export RB_SMALL_MODEL="DeepSeek-V4-Flash-special"
+export RB_MODEL="DeepSeek-V4.1-Flash-special"
+export RB_SMALL_MODEL="DeepSeek-V4.1-Flash-special"
 
 # Where the benchmark is cloned and where run outputs go. Both outside this repository.
 export RB_BENCH="$HOME/razavi-bench"
