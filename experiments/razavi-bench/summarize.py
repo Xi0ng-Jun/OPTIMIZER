@@ -31,7 +31,7 @@ PARTS = ("all", "part1", "part2")
 def rows(path: Path) -> list[dict]:
     if not path.exists():
         return []
-    return [json.loads(line) for line in path.read_text(encoding="utf-8").splitlines() if line.strip()]
+    return [json.loads(line) for line in path.read_text(encoding="utf-8").split("\n") if line.strip()]
 
 
 def percent(scores: list[float]) -> float | None:
@@ -87,6 +87,11 @@ def usage(run_rows: list[dict]) -> dict:
     for row in accepted:
         tools.update(row.get("tools") or {})
     calls = [row.get("notebook_calls") or 0 for row in accepted]
+    tool_seconds: dict[str, list[float]] = {}
+    for row in accepted:
+        for call in row.get("timeline") or []:
+            if call.get("s") is not None:
+                tool_seconds.setdefault(call["tool"], []).append(call["s"])
     return {
         "answers": len(accepted),
         "attempts": len(run_rows),
@@ -99,13 +104,15 @@ def usage(run_rows: list[dict]) -> dict:
         "ask_calls_without_output_evidence": sum(row.get("ask_not_evidence") or 0 for row in accepted),
         "runs_reading_outside_their_directory": sum(bool(row.get("reads_outside_workdir")) for row in accepted),
         "median_wall_s": statistics.median([row.get("wall_s") or 0 for row in accepted]) if accepted else None,
+        "median_seconds_per_call": {tool: statistics.median(values) for tool, values in sorted(tool_seconds.items())},
+        "waited_for_notebook_s": round(sum(row.get("notebook_wait_s") or 0 for row in run_rows), 1),
     }
 
 
 def retrieved_text(transcript: Path) -> str:
     """Everything the tools returned in one run."""
     parts = []
-    for line in transcript.read_text(encoding="utf-8", errors="replace").splitlines():
+    for line in transcript.read_text(encoding="utf-8", errors="replace").split("\n"):
         try:
             event = json.loads(line)
         except json.JSONDecodeError:
@@ -155,7 +162,7 @@ def main() -> None:
     parser.add_argument("--draws", type=int, default=10000)
     args = parser.parse_args()
 
-    tasks = [json.loads(line) for line in (args.bench / "data" / "tasks.jsonl").read_text(encoding="utf-8").splitlines() if line.strip()]
+    tasks = rows(args.bench / "data" / "tasks.jsonl")
     part_of = {task["task_slug"]: task["part"] for task in tasks}
     scores = {arm: {k: v for k, v in load_scores(args.out / arm / "scores.jsonl").items() if k[0] in part_of} for arm in ARMS}
     summary: dict = {

@@ -48,6 +48,7 @@ class Judge(unittest.TestCase):
     def test_scores_through_an_anthropic_format_endpoint(self) -> None:
         server = http.server.ThreadingHTTPServer(("127.0.0.1", 0), Endpoint)
         threading.Thread(target=server.serve_forever, daemon=True).start()
+        self.addCleanup(server.server_close)
         self.addCleanup(server.shutdown)
         tasks = [json.loads(line) for line in (BENCH / "data" / "tasks.jsonl").read_text(encoding="utf-8").splitlines()[:2]]
         with tempfile.TemporaryDirectory() as tmp:

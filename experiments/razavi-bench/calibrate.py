@@ -29,7 +29,7 @@ from pathlib import Path
 
 
 def rows(path: str) -> list[dict]:
-    return [json.loads(line) for line in Path(path).read_text(encoding="utf-8").splitlines() if line.strip()]
+    return [json.loads(line) for line in Path(path).read_text(encoding="utf-8").split("\n") if line.strip()]
 
 
 def percent(scores: list[float]) -> float:

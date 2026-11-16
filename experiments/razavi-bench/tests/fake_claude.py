@@ -55,6 +55,14 @@ elif connected and mode != "no_notebook":
     use(f"mcp__{server}__ask", {"question": "q", "output": "evidence"},
         [{"type": "text", "text": "source_title: A Textbook; text: gm = 2 ID / Vov"}])
 answer = "The gain doubles."
+if "UNREADABLE" in prompt:  # the isolation probe: its own notes.txt, and a file in another directory
+    import re
+    other = Path(re.findall(r"`(/[^`]+)`", prompt)[0])
+    denied = json.loads(argv[argv.index("--settings") + 1])["permissions"]["deny"] if "--settings" in argv else []
+    blocked = any(str(other).startswith(rule[len("Read(/"):-len("**)")]) for rule in denied)
+    emit({"type": "result", "subtype": "success", "is_error": False,
+          "result": (cwd / "notes.txt").read_text() + ("UNREADABLE" if blocked else other.read_text())})
+    sys.exit(0)
 if mode != "final_only":
     (cwd / "answer.md").write_text(answer + "\n")
 emit({"type": "result", "subtype": "success", "is_error": False, "num_turns": 3, "duration_ms": 10,

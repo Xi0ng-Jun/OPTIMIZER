@@ -1,7 +1,10 @@
 #!/usr/bin/env bash
 # The full run: every task three times through both arms, graded and summarized.
 # Run check.sh first. Safe to run again after an interruption: answers and gradings already
-# made are kept. RB_CONCURRENCY sets how many tasks are answered at once (default 2).
+# made are kept.
+#   RB_ARMS         which arms to run: "control", "notebook" or both (default "control notebook")
+#   RB_CONCURRENCY  how many tasks are answered at once (default 2)
+#   RB_PREFLIGHT=0  skip the two one-minute probes at the start (image, read isolation)
 #
 #   source ~/.config/razavi-bench/env.sh
 #   nohup bash experiments/razavi-bench/run.sh >> "$RB_OUT/run.log" 2>&1 &
@@ -14,12 +17,20 @@ for name in ANTHROPIC_BASE_URL ANTHROPIC_AUTH_TOKEN SILICON_NOTEBOOK_MCP_URL SIL
   [ -n "${!name:-}" ] || { echo "missing environment: $name (source env.sh first)"; exit 2; }
 done
 FULL="$RB_OUT/full"
+ARMS=${RB_ARMS:-control notebook}
+CLAUDE=${RB_CLAUDE_BIN:-claude}
+mkdir -p "$FULL"
 echo "===== start [$(date '+%F %T')] answer model: $RB_MODEL | judge model: $RAZAVI_JUDGE_MODEL | benchmark commit: $(git -C "$RB_BENCH" rev-parse --short HEAD 2>/dev/null || echo unknown)"
-for arm in control notebook; do
+echo "arms: $ARMS | code: $(git rev-parse --short HEAD 2>/dev/null || echo unknown)"
+if [ "${RB_PREFLIGHT:-1}" != 0 ]; then
+  python3 $X/probe.py image --model "$RB_MODEL" --small-model "$RB_SMALL_MODEL" --claude-bin "$CLAUDE"
+  python3 $X/probe.py isolation --model "$RB_MODEL" --small-model "$RB_SMALL_MODEL" --claude-bin "$CLAUDE"
+fi
+for arm in $ARMS; do
   python3 $X/run_agent.py --bench "$RB_BENCH" --arm $arm --out "$FULL" --model "$RB_MODEL" \
-    --small-model "$RB_SMALL_MODEL" --claude-bin "${RB_CLAUDE_BIN:-claude}" --concurrency "${RB_CONCURRENCY:-2}"
+    --small-model "$RB_SMALL_MODEL" --claude-bin "$CLAUDE" --concurrency "${RB_CONCURRENCY:-2}"
 done
-for arm in control notebook; do
+for arm in $ARMS; do
   python3 $X/judge.py --bench "$RB_BENCH" --resume --input "$FULL/$arm/answers.jsonl" --output "$FULL/$arm/scores.jsonl"
 done
 python3 $X/summarize.py --bench "$RB_BENCH" --out "$FULL" --leak-pattern 'Analog Design Experiments With AI'

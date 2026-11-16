@@ -19,10 +19,13 @@
 | 文件 | 作用 |
 |---|---|
 | `run_agent.py` | 跑一组：每个（题目，轮次）在只含题干和图的临时目录里调用一次 `claude -p`，收 `answer.md` |
-| `probe.py` | 三项检查：图片是否送到模型、MCP 是否连通、notebook 里有没有题目出处的那两篇文章 |
+| `probe.py` | 经过 `claude` 的检查：图片是否送到模型、MCP 是否连通、notebook 里有没有题目出处的两篇文章、读隔离规则是否生效；不经过 `claude`、直连 notebook 的检查：是否应答（`ping`）、各工具耗时和返回量（`latency`） |
+| `mcp_client.py` | 直连 notebook MCP 接口的最小客户端（标准库） |
+| `timeline.py` | 逐次列出一轮运行里每个工具调用的时刻、耗时、返回量和报错，不打印返回内容 |
 | `judge.py` | 运行基准自带的裁判脚本，只把网络请求换成 Anthropic 格式，复用答题所用的地址和密钥 |
 | `calibrate.py` | 内部裁判与 Razavi 本人打分、与官方裁判打分的一致程度 |
 | `check.sh` / `run.sh` | 运行前的六步检查；正式运行（答题、评分、汇总） |
+| `diagnose.sh` | 不启动任何运行的诊断：试跑的逐次时间线、直连检查、读隔离、工具耗时 |
 | `summarize.py` | 两组分数、配对差值和置信区间、notebook 使用情况、剔除泄题运行后的分数 |
 | `mcp.notebook.json` / `mcp.empty.json` | 两组的 MCP 配置；地址和 token 用环境变量占位，文件里没有真实值 |
 | `env.example.sh` | 环境变量模板 |
@@ -66,7 +69,13 @@ nohup bash experiments/razavi-bench/run.sh >> "$RB_OUT/run.log" 2>&1 &
 tail -f "$RB_OUT/run.log"
 ```
 
-并发用 `RB_CONCURRENCY` 调（默认 2）。结果在 `$RB_OUT/full/summary.md`。
+并发用 `RB_CONCURRENCY` 调（默认 2）。结果在 `$RB_OUT/full/summary.md`。`RB_ARMS=control`（或 `notebook`）只跑一组；两组互不依赖，可以分开跑，汇总时缺的一组显示为空。脚本开头会先做图片和读隔离两项探针，不通过就不开始。
+
+**诊断**：某一步结果异常时用，几分钟到半小时，不启动任何运行。
+
+```bash
+bash experiments/razavi-bench/diagnose.sh 2>&1 | tee "$RB_OUT/diagnose.log"
+```
 
 各脚本也可以单独调用，参数见各自的 `--help`。
 
@@ -74,8 +83,10 @@ tail -f "$RB_OUT/run.log"
 
 - 每次尝试都在一个名字中性的新目录里进行，目录里只有 `instruction.md` 和 `figure-1.png`；题目的 slug 会提示答案，不出现在提示词和目录名里。
 - 内置工具只开 Read 和 Write；不联网，没有 shell。实验组另外允许 `silicon-notebook` 的全部工具，所以 token 的权限必须只有读取和问答。
+- 一条权限规则禁止 agent 读取基准克隆、输出目录和环境变量文件所在的目录（`probe.py isolation` 验证规则生效）。
+- 实验组每次尝试之前，脚本先直连 notebook 的 MCP 接口确认它应答；不应答就每分钟重试，最长等一小时，仍不通则这次尝试记为 `notebook_down`，不调用模型。
 - 下列情况重新采样，最多 3 次：超时、没有产出答案、实验组没连上 MCP、有图却没读图、实验组一次都没查 notebook。前三种若 3 次都如此，这一格没有答案；后两种若 3 次都如此，按最后一次的答案评分并保留状态标记。
-- `runs.jsonl` 逐次记录：工具调用次数、是否读图、`ask` 有没有不带 `output="evidence"`、有没有读运行目录之外的文件。
+- `runs.jsonl` 逐次记录：工具调用次数、每次调用的时刻和耗时、是否读图、`ask` 有没有不带 `output="evidence"`、有没有读运行目录之外的文件、启动时 MCP 的连接状态。
 
 ## 数据约束
 
