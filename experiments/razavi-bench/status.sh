@@ -34,10 +34,12 @@ for arm in ("control", "notebook"):
         continue
     per_rollout = Counter(int(row["rollout"]) for row in answers)
     last = max(per_rollout) if per_rollout else 0
-    finished[arm] = {r for r, n in per_rollout.items() if r < last or n >= tasks}
+    # A task whose every attempt failed gets no answer: its rollout is still finished.
+    given_up = Counter(int(row["rollout"]) for row in runs if not row.get("accepted") and int(row.get("attempt") or 0) >= 3)
+    finished[arm] = {r for r, n in per_rollout.items() if r < last or n + given_up[r] >= tasks}
     walls = [row["wall_s"] for row in runs if row.get("accepted") and row.get("wall_s")]
     print(f"{arm}: {len(answers)} of {total} answers | per rollout {dict(sorted(per_rollout.items()))} | "
-          f"attempts {dict(Counter(row['status'] for row in runs))} | median {statistics.median(walls) if walls else 0:.0f} s per answer")
+          f"attempts {dict(Counter(row['status'] for row in runs))} | tasks given up {sum(given_up.values())} | median {statistics.median(walls) if walls else 0:.0f} s per answer")
     # The pace of the last 30 accepted answers, from the times their transcripts were written.
     stamps = sorted((full / arm / "transcripts" / str(row["transcript"])).stat().st_mtime
                     for row in runs if row.get("accepted") and (full / arm / "transcripts" / str(row.get("transcript"))).exists())[-30:]
