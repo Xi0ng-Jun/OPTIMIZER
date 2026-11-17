@@ -254,7 +254,12 @@ def describe(info: dict[str, Any], workdir: Path, figures: list[str]) -> dict[st
     path_of = lambda use: str(use["input"].get("file_path") or "")
     inside = lambda p: (workdir / p).resolve().is_relative_to(workdir.resolve()) if p else True
     reads = [use for use in info["tool_uses"] if use["name"] == "Read"]
-    outside = [use for use in reads if not inside(path_of(use))]
+    # Claude Code saves a tool result that is too long for the context to a file of its own
+    # session and tells the agent to Read it: the agent's own output, not a read of foreign files.
+    session = str(info["init"].get("session_id") or "")
+    saved = lambda p: bool(session) and f"/{session}/tool-results/" in p
+    saved_reads = [use for use in reads if saved(path_of(use))]
+    outside = [use for use in reads if not inside(path_of(use)) and not saved(path_of(use))]
     asks = [use["input"] for use in info["tool_uses"] if use["name"] == prefix + "ask"]
     seconds: Counter = Counter()
     for use in info["tool_uses"]:
@@ -267,6 +272,7 @@ def describe(info: dict[str, Any], workdir: Path, figures: list[str]) -> dict[st
         "ask_not_evidence": sum(a.get("output") != "evidence" for a in asks),
         "figure_read": any(Path(path_of(use)).name in figures and inside(path_of(use)) and use["error"] is not True
                            for use in reads),
+        "saved_tool_results_read": len(saved_reads),
         "reads_outside_workdir": [path_of(use) for use in outside],
         "outside_reads_ok": sum(use["error"] is False for use in outside),
         "mcp_status": mcp_status(info["init"]),

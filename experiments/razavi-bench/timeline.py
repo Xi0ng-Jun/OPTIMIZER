@@ -66,6 +66,8 @@ def brief(name: str, arguments: dict, cwd: str | None) -> str:
     if name == "Read":
         path = str(arguments.get("file_path") or "")
         outside = bool(cwd) and path.startswith("/") and not path.startswith(cwd.rstrip("/") + "/")
+        if outside and "/tool-results/" in path:
+            return path + "   (a tool result Claude Code saved to a file)"
         return path + ("   <-- OUTSIDE the run directory" if outside else "")
     if name == "Bash":
         return cut(arguments.get("command"), 120)

@@ -24,6 +24,7 @@ Exit code 0 means the check passed (`leak` and `latency` always exit 0: read the
 from __future__ import annotations
 
 import argparse
+import concurrent.futures
 import json
 import os
 import random
@@ -231,11 +232,39 @@ def probe_latency(args: argparse.Namespace) -> int:
             text = "".join(block.get("text") or "" for block in result.get("content") or [] if isinstance(block, dict))
             verdict = "tool error: " + " ".join(text.split())[:300] if result.get("isError") else shape(text)
             print(f"{label}: {time.time() - started:.1f} s | {verdict}", flush=True)
+        concurrent_calls(url, token, search_arg[0], args.timeout)
     except mcp_client.McpError as exc:
         print(f"could not connect: {exc}")
     finally:
         client.close()
     return 0
+
+
+def concurrent_calls(url: str, token: str, search_arg: str, timeout: float) -> None:
+    """Whether the service works on several calls at once: decides how many runs may go in parallel."""
+    def timed(name: str, arguments: dict) -> str:
+        client = mcp_client.McpClient(url, token, timeout=60)
+        started = time.time()
+        try:
+            client.initialize()
+            result = client.call(name, arguments, timeout=timeout)
+            return f"{time.time() - started:.1f} s" + (" (tool error)" if result.get("isError") else "")
+        except mcp_client.McpError as exc:
+            return f"FAILED after {time.time() - started:.1f} s: {exc}"
+        finally:
+            client.close()
+
+    ask = {"question": LATENCY_QUESTION, "output": "evidence", "mode": "reasoning"}
+    with concurrent.futures.ThreadPoolExecutor(max_workers=4) as pool:
+        print("--- at the same time, each on its own connection", flush=True)
+        asks = [pool.submit(timed, "ask", ask) for _ in range(2)]
+        time.sleep(5)
+        search = pool.submit(timed, "search", {search_arg: LATENCY_QUESTION})
+        connect = pool.submit(mcp_client.ping, url, token, 60)
+        print(f"search while two asks run: {search.result()}", flush=True)
+        got = connect.result()
+        print("new connection while two asks run: " + (f"{got['seconds']} s" if got["ok"] else f"FAILED: {got['error']}"), flush=True)
+        print("two asks at once: " + " | ".join(future.result() for future in asks), flush=True)
 
 
 def main() -> None:

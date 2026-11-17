@@ -102,6 +102,7 @@ def usage(run_rows: list[dict]) -> dict:
         "runs_that_called_the_notebook": sum(c > 0 for c in calls),
         "median_notebook_calls": statistics.median(calls) if calls else None,
         "ask_calls_without_output_evidence": sum(row.get("ask_not_evidence") or 0 for row in accepted),
+        "runs_reading_a_saved_tool_result": sum(bool(row.get("saved_tool_results_read")) for row in accepted),
         "runs_reading_outside_their_directory": sum(bool(row.get("reads_outside_workdir")) for row in accepted),
         "median_wall_s": statistics.median([row.get("wall_s") or 0 for row in accepted]) if accepted else None,
         "median_seconds_per_call": {tool: statistics.median(values) for tool, values in sorted(tool_seconds.items())},
