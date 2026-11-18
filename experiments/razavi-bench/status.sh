@@ -58,6 +58,17 @@ for arm in ("control", "notebook"):
         print(f"   {len(cut)} attempts hit the time limit: {sum(waiting.values())} while a tool call had not returned {dict(waiting)}, "
               f"{len(idle)} while the model was working" + (f" (median {statistics.median(idle) / 60:.0f} min since its last tool result, "
               f"median {statistics.median([len(row.get('timeline') or []) for row in cut]):.0f} tool calls before)" if idle else ""))
+    # What an attempt that answered did, against one that hit the time limit (medians per attempt).
+    for label, group in (("answered", [row for row in runs if row.get("accepted")]), ("hit the limit", cut)):
+        if group:
+            names = sorted({name for row in group for name in row.get("tools") or {}})
+            calls = {name: statistics.median([(row.get("tools") or {}).get(name, 0) for row in group]) for name in names}
+            in_tools = statistics.median([sum((row.get("tool_seconds") or {}).values()) for row in group])
+            wall = statistics.median([row.get("wall_s") or 0 for row in group])
+            print(f"   {label} ({len(group)}): {wall / 60:.0f} min, of which {in_tools / 60:.0f} min inside tool calls | "
+                  f"{statistics.median([row.get('tool_result_chars') or 0 for row in group]) / 1000:.0f}k chars returned by tools | "
+                  f"saved results read {statistics.median([row.get('saved_tool_results_read') or 0 for row in group]):g} | calls "
+                  + ", ".join(f"{name} {count:g}" for name, count in calls.items() if count))
     # The pace of the last 30 accepted answers, from the times their transcripts were written.
     stamps = sorted((full / arm / "transcripts" / str(row["transcript"])).stat().st_mtime
                     for row in runs if row.get("accepted") and (full / arm / "transcripts" / str(row.get("transcript"))).exists())[-30:]

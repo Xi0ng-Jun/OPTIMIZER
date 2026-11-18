@@ -177,6 +177,17 @@ def main() -> None:
     for label, key in (("Largest gains", "largest_gains"), ("Largest losses", "largest_losses")):
         if summary["paired"][key]:
             lines.append(f"{label}: " + "; ".join(f"{slug} ({fmt(d, True)})" for slug, d in summary["paired"][key]))
+    # How much an arm differs from itself between two rollouts: the yardstick for the difference above.
+    summary["between_rollouts"] = {}
+    for arm in ARMS:
+        rollouts = sorted({rollout for _, rollout in scores[arm]})
+        for first, second in zip(rollouts, rollouts[1:]):
+            pick = lambda wanted: {key: value for key, value in scores[arm].items() if key[1] == wanted}
+            d = paired(pick(first), pick(second), part_of, args.draws)["all"]
+            if d:
+                summary["between_rollouts"][f"{arm} {second} - {first}"] = d
+                lines.append(f"{arm}, rollout {second} minus rollout {first} ({d['tasks']} tasks): {fmt(d['difference'], True)}, "
+                             f"tasks better / same / worse {d['better']} / {d['same']} / {d['worse']}")
     lines += ["", "### Usage", ""]
     for arm in ARMS:
         lines.append(f"- {arm}: " + json.dumps(summary["usage"][arm], ensure_ascii=False))
