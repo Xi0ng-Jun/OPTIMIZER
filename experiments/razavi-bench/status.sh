@@ -16,7 +16,8 @@ for name in RB_BENCH RB_OUT; do
 done
 FULL="$RB_OUT/full"
 INTERIM="$RB_OUT/interim"
-python3 - "$FULL" "$INTERIM" "$RB_BENCH" "${1:-}" <<'PY'
+RUNNERS="control $(pgrep -fc 'run_agent\.py.*--arm control' || true), notebook $(pgrep -fc 'run_agent\.py.*--arm notebook' || true)"
+python3 - "$FULL" "$INTERIM" "$RB_BENCH" "${1:-}" "$RUNNERS" <<'PY'
 import json, statistics, sys, time
 from collections import Counter
 from pathlib import Path
@@ -25,28 +26,45 @@ full, interim, bench, want_scores = Path(sys.argv[1]), Path(sys.argv[2]), Path(s
 rows = lambda path: [json.loads(line) for line in path.read_text(encoding="utf-8").split("\n") if line.strip()] if path.exists() else []
 tasks = len(rows(bench / "data" / "tasks.jsonl"))
 total = 3 * tasks
-print(f"now: {time.strftime('%F %T')}")
+print(f"now: {time.strftime('%F %T')} | runners answering now: {sys.argv[5]}")
 finished = {}
 for arm in ("control", "notebook"):
     answers, runs = rows(full / arm / "answers.jsonl"), rows(full / arm / "runs.jsonl")
     if not runs:
         print(f"{arm}: not started")
         continue
-    per_rollout = Counter(int(row["rollout"]) for row in answers)
+    # Two runners may have worked on the same arm: count each (task, rollout) once.
+    have = {(row["task_slug"], int(row["rollout"])) for row in answers}
+    per_rollout = Counter(rollout for _, rollout in have)
     last = max(per_rollout) if per_rollout else 0
     # A task whose every attempt failed gets no answer: its rollout is still finished.
-    given_up = Counter(int(row["rollout"]) for row in runs if not row.get("accepted") and int(row.get("attempt") or 0) >= 3)
+    lost = {(row["task_slug"], int(row["rollout"])) for row in runs
+            if not row.get("accepted") and int(row.get("attempt") or 0) >= 3} - have
+    given_up = Counter(rollout for _, rollout in lost)
     finished[arm] = {r for r, n in per_rollout.items() if r < last or n + given_up[r] >= tasks}
     walls = [row["wall_s"] for row in runs if row.get("accepted") and row.get("wall_s")]
-    print(f"{arm}: {len(answers)} of {total} answers | per rollout {dict(sorted(per_rollout.items()))} | "
+    print(f"{arm}: {len(have)} of {total} answers | per rollout {dict(sorted(per_rollout.items()))} | "
           f"attempts {dict(Counter(row['status'] for row in runs))} | tasks given up {sum(given_up.values())} | median {statistics.median(walls) if walls else 0:.0f} s per answer")
+    # Where the attempts that hit the time limit were when they were stopped.
+    cut = [row for row in runs if row.get("status") == "timeout"]
+    if cut:
+        waiting, idle = Counter(), []
+        for row in cut:
+            calls = row.get("timeline") or []
+            if calls and calls[-1].get("s") is None:
+                waiting[calls[-1]["tool"]] += 1
+            else:
+                idle.append((row.get("wall_s") or 0) - (calls[-1]["at"] + calls[-1]["s"] if calls else 0))
+        print(f"   {len(cut)} attempts hit the time limit: {sum(waiting.values())} while a tool call had not returned {dict(waiting)}, "
+              f"{len(idle)} while the model was working" + (f" (median {statistics.median(idle) / 60:.0f} min since its last tool result, "
+              f"median {statistics.median([len(row.get('timeline') or []) for row in cut]):.0f} tool calls before)" if idle else ""))
     # The pace of the last 30 accepted answers, from the times their transcripts were written.
     stamps = sorted((full / arm / "transcripts" / str(row["transcript"])).stat().st_mtime
                     for row in runs if row.get("accepted") and (full / arm / "transcripts" / str(row.get("transcript"))).exists())[-30:]
-    if len(answers) >= total:
+    if len(have) + len(lost) >= total:
         print("   finished")
     elif len(stamps) >= 5 and time.time() - stamps[-1] < 2 * 3600:
-        left = (total - len(answers)) * (stamps[-1] - stamps[0]) / (len(stamps) - 1)
+        left = (total - len(have) - len(lost)) * (stamps[-1] - stamps[0]) / (len(stamps) - 1)
         print(f"   last answer {(time.time() - stamps[-1]) / 60:.0f} min ago | about {left / 3600:.1f} h left for this arm, "
               f"until {time.strftime('%m-%d %H:%M', time.localtime(time.time() + left))}")
     else:
