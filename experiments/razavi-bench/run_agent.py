@@ -50,6 +50,9 @@ GATE_POLL_S = 60
 MCP_SERVER = "silicon-notebook"
 MCP_CONFIG = {"control": HERE / "mcp.empty.json", "notebook": HERE / "mcp.notebook.json"}
 TOKEN_ENV = "SILICON_NOTEBOOK_AGENT_TOKEN"
+# Claude Code sends this as max_tokens of every reply; unset, it uses its own default (32000 for a
+# model name it does not know). A reply that reaches it is cut off and the attempt ends unanswered.
+OUTPUT_LIMIT_ENV = "CLAUDE_CODE_MAX_OUTPUT_TOKENS"
 URL_ENV = "SILICON_NOTEBOOK_MCP_URL"
 
 TASK_NOTE = (
@@ -343,6 +346,7 @@ def attempt(task: dict[str, Any], rollout: int, number: int, args: argparse.Name
                "answer_source": source, "answer_chars": len(answer), "transcript": transcript.name,
                "budget": {"total": budget["total"], "ask": budget["ask"]} if budget else None,
                "budget_refused": counted.get("refused", 0) if budget else None,
+               "output_limit": env.get(OUTPUT_LIMIT_ENV) or None,
                **describe(info, workdir, figures)}
         if ran["timed_out"]:
             row["status"] = "timeout"
@@ -483,7 +487,8 @@ def main() -> None:
     done = answered(arm_dir / "answers.jsonl")
     todo = [(task, rollout) for rollout in sorted(set(args.rollout or [1, 2, 3])) for task in tasks
             if (task["task_slug"], rollout) not in done]
-    print(f"{args.arm}: {len(todo)} to run, {len(done)} already answered", flush=True)
+    limit = env.get(OUTPUT_LIMIT_ENV) or "Claude Code's default"
+    print(f"{args.arm}: {len(todo)} to run, {len(done)} already answered | output limit per reply: {limit}", flush=True)
     lock, counts = threading.Lock(), Counter()
     with concurrent.futures.ThreadPoolExecutor(max_workers=max(1, args.concurrency)) as pool:
         futures = {pool.submit(one, task, rollout, args, env, arm_dir, lock): (task["task_slug"], rollout)

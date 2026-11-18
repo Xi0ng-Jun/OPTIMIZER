@@ -47,10 +47,19 @@ def load_scores(path: Path) -> dict[tuple[str, int], int]:
     return scores
 
 
-def arm_table(scores: dict[tuple[str, int], int], part_of: dict[str, str]) -> dict:
+def given_up(run_rows: list[dict]) -> set[tuple[str, int]]:
+    """The (task, rollout) slots whose three attempts all ended without an answer."""
+    answered = {(row["task_slug"], int(row["rollout"])) for row in run_rows if row.get("accepted")}
+    return {(row["task_slug"], int(row["rollout"])) for row in run_rows
+            if not row.get("accepted") and int(row.get("attempt") or 0) >= 3} - answered
+
+
+def arm_table(scores: dict[tuple[str, int], int], part_of: dict[str, str], unanswered: int = 0) -> dict:
     chosen = lambda part: [s for (slug, _), s in scores.items() if part in part_of[slug]]
     rollouts = sorted({rollout for _, rollout in scores})
-    return {"graded": len(scores), **{part: percent(chosen(part)) for part in PARTS},
+    return {"graded": len(scores), "unanswered": unanswered,
+            "all_unanswered_0": percent(list(scores.values()) + [0] * unanswered),
+            **{part: percent(chosen(part)) for part in PARTS},
             "by_rollout": {r: percent([s for (_, k), s in scores.items() if k == r]) for r in rollouts}}
 
 
@@ -142,11 +151,14 @@ def fmt(value: float | None, signed: bool = False) -> str:
 
 
 def score_lines(title: str, tables: dict[str, dict], diff: dict) -> list[str]:
-    lines = [f"### {title}", "", "| | overall | part 1 | part 2 | with figure | text only | answers graded | by rollout |", "|---|---:|---:|---:|---:|---:|---:|---|"]
+    lines = [f"### {title}", "", "| | overall | part 1 | part 2 | with figure | text only | answers graded | by rollout | unanswered | overall, unanswered as 0 |",
+             "|---|---:|---:|---:|---:|---:|---:|---|---:|---:|"]
     for arm in ARMS:
         t = tables[arm]
         lines.append(f"| {arm} | {fmt(t['all'])} | {fmt(t['part1'])} | {fmt(t['part2'])} | {fmt(t['figure'])} | {fmt(t['text-only'])} | {t['graded']} | "
-                     + ", ".join(fmt(v) for v in t["by_rollout"].values()) + " |")
+                     + ", ".join(fmt(v) for v in t["by_rollout"].values()) + f" | {t['unanswered']} | {fmt(t['all_unanswered_0'])} |")
+    lines += ["", "Unanswered: all three attempts ended without an answer. Such a slot is left out of every score here except "
+              "the last column, which counts it as 0 the way the benchmark's leaderboard does."]
     lines += ["", "| notebook - control | difference | 95% interval | tasks better / same / worse |", "|---|---:|---|---|"]
     for part in PARTS:
         d = diff.get(part)
@@ -168,9 +180,10 @@ def main() -> None:
     tasks = rows(args.bench / "data" / "tasks.jsonl")
     part_of = {task["task_slug"]: {"all", task["part"], "figure" if task.get("figures") else "text-only"} for task in tasks}
     scores = {arm: {k: v for k, v in load_scores(args.out / arm / "scores.jsonl").items() if k[0] in part_of} for arm in ARMS}
+    lost = {arm: len({key for key in given_up(rows(args.out / arm / "runs.jsonl")) if key[0] in part_of}) for arm in ARMS}
     summary: dict = {
         "tasks": len(tasks),
-        "scores": {arm: arm_table(scores[arm], part_of) for arm in ARMS},
+        "scores": {arm: arm_table(scores[arm], part_of, lost[arm]) for arm in ARMS},
         "paired": paired(scores["control"], scores["notebook"], part_of, args.draws),
         "usage": {arm: usage(rows(args.out / arm / "runs.jsonl")) for arm in ARMS},
     }
@@ -196,7 +209,7 @@ def main() -> None:
     if args.leak_pattern:
         hits = leaked_runs(args.out / "notebook", args.leak_pattern)
         kept = {k: v for k, v in scores["notebook"].items() if k not in hits}
-        tables = {"control": summary["scores"]["control"], "notebook": arm_table(kept, part_of)}
+        tables = {"control": summary["scores"]["control"], "notebook": arm_table(kept, part_of, lost["notebook"])}
         summary["leak"] = {"pattern": args.leak_pattern, "runs_matching": len(hits),
                            "tasks_matching": len({slug for slug, _ in hits}),
                            "scores_without_them": tables["notebook"],

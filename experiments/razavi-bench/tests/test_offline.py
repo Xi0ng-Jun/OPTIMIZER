@@ -196,12 +196,16 @@ class Offline(unittest.TestCase):
             (self.out / arm / "scores.jsonl").write_text("".join(
                 json.dumps({"task_slug": slug, "score_0_to_4": score, "answer_metadata": {"rollout": rollout}}) + "\n"
                 for slug, pair in table.items() for rollout, score in zip((1, 2), pair)))
+        with (self.out / "control" / "runs.jsonl").open("a") as handle:  # a slot given up after three attempts
+            handle.write(json.dumps({"task_slug": SLUGS[0], "rollout": 3, "attempt": 3, "status": "no_answer", "accepted": False}) + "\n")
         done = subprocess.run([sys.executable, str(ROOT / "summarize.py"), "--bench", str(self.bench), "--out", str(self.out),
                                "--leak-pattern", "a textbook", "--draws", "200"], capture_output=True, text=True)
         self.assertEqual(done.returncode, 0, done.stderr)
         summary = json.loads((self.out / "summary.json").read_text())
         self.assertEqual([summary["scores"]["control"][p] for p in ("all", "part1", "part2")], [50.0, 50.0, 50.0])
         self.assertEqual([summary["scores"]["notebook"][p] for p in ("all", "part1", "part2")], [75.0, 100.0, 50.0])
+        self.assertEqual((summary["scores"]["control"]["unanswered"], summary["scores"]["control"]["all_unanswered_0"]), (1, 40.0))
+        self.assertEqual((summary["scores"]["notebook"]["unanswered"], summary["scores"]["notebook"]["all_unanswered_0"]), (0, 75.0))
         self.assertEqual(summary["paired"]["all"]["difference"], 25.0)
         self.assertEqual((summary["paired"]["part1"]["difference"], summary["paired"]["part1"]["better"]), (50.0, 1))
         self.assertEqual(summary["usage"]["notebook"]["runs_that_called_the_notebook"], 4)

@@ -19,14 +19,37 @@ done
 RUN=${RB_RUN:-full}
 FULL="$RB_OUT/$RUN"
 INTERIM="$RB_OUT/interim"; [ "$RUN" = full ] || INTERIM="$RB_OUT/$RUN-interim"
-RUNNERS="control $(pgrep -fc 'run_agent\.py.*--arm control' || true), notebook $(pgrep -fc 'run_agent\.py.*--arm notebook' || true)"
+# Only the runners of this run: another run's runners have another --out.
+RUNNERS="control $(pgrep -fc "run_agent\.py.*--arm control --out $FULL " || true), notebook $(pgrep -fc "run_agent\.py.*--arm notebook --out $FULL " || true)"
 python3 - "$FULL" "$INTERIM" "$RB_BENCH" "${1:-}" "$RUNNERS" <<'PY'
-import json, statistics, sys, time
+import json, re, statistics, sys, time
 from collections import Counter
 from pathlib import Path
 
 full, interim, bench, want_scores = Path(sys.argv[1]), Path(sys.argv[2]), Path(sys.argv[3]), sys.argv[4] == "scores"
 rows = lambda path: [json.loads(line) for line in path.read_text(encoding="utf-8").split("\n") if line.strip()] if path.exists() else []
+
+
+def why(transcript):
+    """Why an attempt ended without an answer, from the last message Claude Code printed."""
+    last = None
+    if transcript.exists():
+        for line in transcript.read_text(encoding="utf-8", errors="replace").split("\n"):
+            if '"type":"result"' in line.replace(" ", ""):
+                try:
+                    last = json.loads(line)
+                except json.JSONDecodeError:
+                    pass
+    if not isinstance(last, dict):
+        return "no final message in the transcript"
+    text = last.get("result") if isinstance(last.get("result"), str) else ""
+    limit = re.search(r"exceeded the (\d+) output token maximum", text)
+    if limit:
+        return f"a reply was cut off at the output limit of {limit.group(1)} tokens"
+    if last.get("is_error"):
+        # Addresses stay out of what gets pasted elsewhere.
+        return "error: " + re.sub(r"https?://\S+|\b[\w-]+(\.[\w-]+){2,}\b", "<address>", text)[:80]
+    return "the model stopped without writing answer.md"
 tasks = len(rows(bench / "data" / "tasks.jsonl"))
 total = 3 * tasks
 print(f"now: {time.strftime('%F %T')} | runners answering now: {sys.argv[5]}")
@@ -61,6 +84,11 @@ for arm in ("control", "notebook"):
         print(f"   {len(cut)} attempts hit the time limit: {sum(waiting.values())} while a tool call had not returned {dict(waiting)}, "
               f"{len(idle)} while the model was working" + (f" (median {statistics.median(idle) / 60:.0f} min since its last tool result, "
               f"median {statistics.median([len(row.get('timeline') or []) for row in cut]):.0f} tool calls before)" if idle else ""))
+    # Why the attempts that ended on their own without an answer did so.
+    empty = [row for row in runs if row.get("status") == "no_answer"]
+    if empty:
+        reasons = Counter(why(full / arm / "transcripts" / str(row.get("transcript"))) for row in empty)
+        print(f"   {len(empty)} attempts ended without an answer: " + "; ".join(f"{n} {reason}" for reason, n in reasons.most_common()))
     # What an attempt that answered did, against one that hit the time limit (medians per attempt).
     for label, group in (("answered", [row for row in runs if row.get("accepted")]), ("hit the limit", cut)):
         if group:
