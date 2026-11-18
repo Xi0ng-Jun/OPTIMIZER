@@ -25,7 +25,7 @@ from collections import Counter
 from pathlib import Path
 
 ARMS = ("control", "notebook")
-PARTS = ("all", "part1", "part2")
+PARTS = ("all", "part1", "part2", "figure", "text-only")  # the last two: has a figure or not
 
 
 def rows(path: Path) -> list[dict]:
@@ -48,7 +48,7 @@ def load_scores(path: Path) -> dict[tuple[str, int], int]:
 
 
 def arm_table(scores: dict[tuple[str, int], int], part_of: dict[str, str]) -> dict:
-    chosen = lambda part: [s for (slug, _), s in scores.items() if part in ("all", part_of[slug])]
+    chosen = lambda part: [s for (slug, _), s in scores.items() if part in part_of[slug]]
     rollouts = sorted({rollout for _, rollout in scores})
     return {"graded": len(scores), **{part: percent(chosen(part)) for part in PARTS},
             "by_rollout": {r: percent([s for (_, k), s in scores.items() if k == r]) for r in rollouts}}
@@ -65,7 +65,7 @@ def paired(control: dict, notebook: dict, part_of: dict[str, str], draws: int) -
     a, b = task_means(control), task_means(notebook)
     out = {}
     for part in PARTS:
-        diffs = [25 * (b[slug] - a[slug]) for slug in sorted(a.keys() & b.keys()) if part in ("all", part_of[slug])]
+        diffs = [25 * (b[slug] - a[slug]) for slug in sorted(a.keys() & b.keys()) if part in part_of[slug]]
         if not diffs:
             out[part] = None
             continue
@@ -142,10 +142,10 @@ def fmt(value: float | None, signed: bool = False) -> str:
 
 
 def score_lines(title: str, tables: dict[str, dict], diff: dict) -> list[str]:
-    lines = [f"### {title}", "", "| | overall | part 1 | part 2 | answers graded | by rollout |", "|---|---:|---:|---:|---:|---|"]
+    lines = [f"### {title}", "", "| | overall | part 1 | part 2 | with figure | text only | answers graded | by rollout |", "|---|---:|---:|---:|---:|---:|---:|---|"]
     for arm in ARMS:
         t = tables[arm]
-        lines.append(f"| {arm} | {fmt(t['all'])} | {fmt(t['part1'])} | {fmt(t['part2'])} | {t['graded']} | "
+        lines.append(f"| {arm} | {fmt(t['all'])} | {fmt(t['part1'])} | {fmt(t['part2'])} | {fmt(t['figure'])} | {fmt(t['text-only'])} | {t['graded']} | "
                      + ", ".join(fmt(v) for v in t["by_rollout"].values()) + " |")
     lines += ["", "| notebook - control | difference | 95% interval | tasks better / same / worse |", "|---|---:|---|---|"]
     for part in PARTS:
@@ -166,7 +166,7 @@ def main() -> None:
     args = parser.parse_args()
 
     tasks = rows(args.bench / "data" / "tasks.jsonl")
-    part_of = {task["task_slug"]: task["part"] for task in tasks}
+    part_of = {task["task_slug"]: {"all", task["part"], "figure" if task.get("figures") else "text-only"} for task in tasks}
     scores = {arm: {k: v for k, v in load_scores(args.out / arm / "scores.jsonl").items() if k[0] in part_of} for arm in ARMS}
     summary: dict = {
         "tasks": len(tasks),
