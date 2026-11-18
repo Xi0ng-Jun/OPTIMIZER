@@ -101,6 +101,8 @@ def usage(run_rows: list[dict]) -> dict:
         "tool_calls": dict(tools),
         "runs_that_called_the_notebook": sum(c > 0 for c in calls),
         "median_notebook_calls": statistics.median(calls) if calls else None,
+        "call_budget": next((row["budget"] for row in accepted if row.get("budget")), None),
+        "runs_with_a_call_refused_by_the_budget": sum(bool(row.get("budget_refused")) for row in accepted),
         "ask_calls_without_output_evidence": sum(row.get("ask_not_evidence") or 0 for row in accepted),
         "runs_reading_a_saved_tool_result": sum(bool(row.get("saved_tool_results_read")) for row in accepted),
         "runs_reading_outside_their_directory": sum(bool(row.get("reads_outside_workdir")) for row in accepted),

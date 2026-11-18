@@ -5,6 +5,8 @@
 #   2 with "scores": grades the rollouts that are finished in every arm that has answers, and
 #     prints the same summary as the full run (about 5 seconds per answer not yet graded)
 #
+# RB_RUN names the run's directory under $RB_OUT, as for run.sh (default "full").
+#
 #   source ~/.config/razavi-bench/env.sh
 #   bash experiments/razavi-bench/status.sh            # progress only
 #   bash experiments/razavi-bench/status.sh scores     # progress, then results so far
@@ -14,8 +16,9 @@ X=experiments/razavi-bench
 for name in RB_BENCH RB_OUT; do
   [ -n "${!name:-}" ] || { echo "missing environment: $name (source env.sh first)"; exit 2; }
 done
-FULL="$RB_OUT/full"
-INTERIM="$RB_OUT/interim"
+RUN=${RB_RUN:-full}
+FULL="$RB_OUT/$RUN"
+INTERIM="$RB_OUT/interim"; [ "$RUN" = full ] || INTERIM="$RB_OUT/$RUN-interim"
 RUNNERS="control $(pgrep -fc 'run_agent\.py.*--arm control' || true), notebook $(pgrep -fc 'run_agent\.py.*--arm notebook' || true)"
 python3 - "$FULL" "$INTERIM" "$RB_BENCH" "${1:-}" "$RUNNERS" <<'PY'
 import json, statistics, sys, time
@@ -67,6 +70,8 @@ for arm in ("control", "notebook"):
             wall = statistics.median([row.get("wall_s") or 0 for row in group])
             print(f"   {label} ({len(group)}): {wall / 60:.0f} min, of which {in_tools / 60:.0f} min inside tool calls | "
                   f"{statistics.median([row.get('tool_result_chars') or 0 for row in group]) / 1000:.0f}k chars returned by tools | "
+                  + (f"refused by the call budget {statistics.median([row.get('budget_refused') or 0 for row in group]):g} | "
+                     if any(row.get("budget") for row in group) else "") +
                   f"saved results read {statistics.median([row.get('saved_tool_results_read') or 0 for row in group]):g} | calls "
                   + ", ".join(f"{name} {count:g}" for name, count in calls.items() if count))
     # The pace of the last 30 accepted answers, from the times their transcripts were written.

@@ -71,7 +71,7 @@ def number_png(code: str, scale: int = 2) -> bytes:
 
 
 def call(args: argparse.Namespace, arm: str, prompt: str, files: dict[str, bytes] | None = None,
-         deny: list[Path] | None = None) -> dict:
+         deny: list[Path] | None = None, budget: dict | None = None) -> dict:
     if not args.model:
         raise SystemExit("this check runs `claude`: pass --model")
     env = run_agent.child_env(args)
@@ -80,7 +80,7 @@ def call(args: argparse.Namespace, arm: str, prompt: str, files: dict[str, bytes
         workdir = Path(name)
         for filename, data in (files or {}).items():
             (workdir / filename).write_bytes(data)
-        ran = run_agent.run_claude(run_agent.claude_command(args, arm, tools="Read", deny=deny), prompt, workdir, env, args.timeout)
+        ran = run_agent.run_claude(run_agent.claude_command(args, arm, tools="Read", deny=deny, budget=budget), prompt, workdir, env, args.timeout)
     info = run_agent.parse_stream(ran["stdout"], ran["times"])
     if not info["init"]:
         print("no transcript from claude; exit code", ran["exit_code"], "\n" + ran["stderr"][-800:])
@@ -167,6 +167,28 @@ def probe_isolation(args: argparse.Namespace) -> int:
     passed = inside in ruled and outside not in ruled
     print("PASS: the rule keeps the agent out of a denied directory" if passed else "FAIL: see above")
     return 0 if passed else 1
+
+
+def probe_budget(args: argparse.Namespace) -> int:
+    """With a budget of one notebook call, the second call must be refused before it is made."""
+    with tempfile.TemporaryDirectory(prefix="rb-budget-") as name:
+        state = Path(name) / "state.json"
+        info = call(args, "notebook", "Call the `list_notebooks` tool of silicon-notebook. Then call it a second time, "
+                    "whatever the first call returned. Then reply with one line: FIRST=<ok or refused> SECOND=<ok or refused>.",
+                    budget={"total": 1, "ask": 1, "state": state})
+        counted = json.loads(state.read_text(encoding="utf-8")) if state.exists() else {}
+    uses = [use for use in info["tool_uses"] if (use["name"] or "").startswith(f"mcp__{run_agent.MCP_SERVER}__")]
+    stopped = [bool(use["error"] or use.get("refused")) for use in uses]
+    print("notebook calls issued:", len(uses), "| stopped:", stopped, "| hook counted:", counted or "nothing")
+    print("reply:", final_text(info)[:200])
+    if not uses or stopped[0]:
+        print("FAIL: with the budget installed, the first notebook call did not go through")
+        return 1
+    if len(uses) >= 2 and all(stopped[1:]) and sum((counted.get("calls") or {}).values()) == 1:
+        print("PASS: the second call was refused")
+        return 0
+    print("NOT ENFORCED: the second call was not refused (or was not made); the limit then rests on the prompt alone")
+    return 3
 
 
 def endpoint(args: argparse.Namespace) -> tuple[str, str]:
@@ -269,7 +291,7 @@ def concurrent_calls(url: str, token: str, search_arg: str, timeout: float) -> N
 
 def main() -> None:
     parser = argparse.ArgumentParser(description=__doc__, formatter_class=argparse.RawDescriptionHelpFormatter)
-    parser.add_argument("check", choices=("image", "mcp", "leak", "isolation", "ping", "latency"))
+    parser.add_argument("check", choices=("image", "mcp", "leak", "isolation", "budget", "ping", "latency"))
     parser.add_argument("--model", default="")
     parser.add_argument("--small-model", default="")
     parser.add_argument("--token-file", default="")
@@ -278,7 +300,7 @@ def main() -> None:
     parser.add_argument("--mcp-tool-timeout-ms", type=int, default=900_000)
     parser.add_argument("--mcp-output-tokens", type=int, default=50_000)
     args = parser.parse_args()
-    checks = {"image": probe_image, "mcp": probe_mcp, "leak": probe_leak, "isolation": probe_isolation,
+    checks = {"image": probe_image, "mcp": probe_mcp, "leak": probe_leak, "isolation": probe_isolation, "budget": probe_budget,
               "ping": probe_ping, "latency": probe_latency}
     sys.exit(checks[args.check](args))
 

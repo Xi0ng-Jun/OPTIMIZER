@@ -69,7 +69,7 @@ nohup bash experiments/razavi-bench/run.sh >> "$RB_OUT/run.log" 2>&1 &
 tail -f "$RB_OUT/run.log"
 ```
 
-并发用 `RB_CONCURRENCY` 调（默认 2）。结果在 `$RB_OUT/full/summary.md`。`RB_ARMS=control`（或 `notebook`）只跑一组；两组互不依赖，可以分开跑，汇总时缺的一组显示为空。脚本开头会先做图片和读隔离两项探针，不通过就不开始。
+并发用 `RB_CONCURRENCY` 调（默认 2）。结果在 `$RB_OUT/full/summary.md`。`RB_RUN=<名字>` 把这次运行放到 `$RB_OUT/<名字>/`；只跑实验组时，对照组从 `full` 复制过来。运行中用 `status.sh` 看进度，`status.sh scores` 对两组都已完成的轮次先评分汇总。`RB_ARMS=control`（或 `notebook`）只跑一组；两组互不依赖，可以分开跑，汇总时缺的一组显示为空。脚本开头会先做图片和读隔离两项探针，不通过就不开始。
 
 **诊断**：某一步结果异常时用，几分钟到半小时，不启动任何运行。
 
@@ -85,6 +85,7 @@ bash experiments/razavi-bench/diagnose.sh 2>&1 | tee "$RB_OUT/diagnose.log"
 - 内置工具只开 Read 和 Write；不联网，没有 shell。实验组另外允许 `silicon-notebook` 的全部工具，所以 token 的权限必须只有读取和问答。
 - 一条权限规则禁止 agent 读取基准克隆、输出目录和环境变量文件所在的目录（`probe.py isolation` 验证规则生效）。
 - 实验组每次尝试之前，脚本先直连 notebook 的 MCP 接口确认它应答；不应答就每分钟重试，最长等一小时，仍不通则这次尝试记为 `notebook_down`，不调用模型。
+- 实验组每次运行最多调用 notebook 10 次，其中 `ask` 最多 2 次（`run_agent.py --notebook-calls / --ask-calls`，0 为不限）。提示词里写明这个上限，超出的调用由一个 PreToolUse hook（`budget_hook.py`）拒绝，`probe.py budget` 验证 hook 生效。加这个上限的原因：2026-11-17 不设上限的第 1 轮里，101 次尝试有 53 次跑满 60 分钟，超时的运行调用工具的中位数是 24 次，答完的是 7 次 notebook 调用。
 - 下列情况重新采样，最多 3 次：超时、没有产出答案、实验组没连上 MCP、有图却没读图、实验组一次都没查 notebook。前三种若 3 次都如此，这一格没有答案；后两种若 3 次都如此，按最后一次的答案评分并保留状态标记。
 - `runs.jsonl` 逐次记录：工具调用次数、每次调用的时刻和耗时、是否读图、`ask` 有没有不带 `output="evidence"`、有没有读运行目录之外的文件、启动时 MCP 的连接状态。
 

@@ -96,6 +96,32 @@ class Offline(unittest.TestCase):
         self.assertIn("ask(output=evidence", shown.stdout)
         self.assertNotIn("A Textbook", shown.stdout)  # what a tool returned is never printed
 
+    def test_the_notebook_arm_carries_a_call_budget_and_the_hook_enforces_it(self) -> None:
+        self.run_arm("control")
+        self.run_arm("notebook", "", "--notebook-calls", "3", "--ask-calls", "1")
+        control, notebook = rows(self.log)[:4], rows(self.log)[4:]
+        settings = lambda call: json.loads(call["argv"][call["argv"].index("--settings") + 1])
+        self.assertTrue(all("hooks" not in settings(c) and "notebook calls" not in c["prompt"] for c in control))
+        self.assertTrue(all("at most 3 notebook calls" in c["prompt"] and "at most 1 `ask`" in c["prompt"] for c in notebook))
+        hook = settings(notebook[0])["hooks"]["PreToolUse"][0]
+        self.assertEqual(hook["matcher"], "mcp__silicon-notebook__.*")
+        self.assertTrue(all(r["budget"] == {"total": 3, "ask": 1} and r["budget_refused"] == 0 for r in rows(self.out / "notebook" / "runs.jsonl")))
+        # The hook itself, as Claude Code calls it: the command from the settings, the tool call on stdin.
+        command = hook["hooks"][0]["command"]
+        state = Path(command.split("--state ")[1].split(" --total")[0])
+        self.addCleanup(lambda: state.unlink(missing_ok=True))
+        def fire(tool: str) -> tuple[int, str]:
+            done = subprocess.run(command, shell=True, input=json.dumps({"tool_name": tool}), capture_output=True, text=True)
+            return done.returncode, done.stderr
+        nb = "mcp__silicon-notebook__"
+        self.assertEqual([fire(t)[0] for t in ("Read", nb + "ask", nb + "ask", nb + "search", nb + "search", nb + "search")], [0, 0, 2, 0, 0, 2])
+        self.assertIn("write answer.md", fire(nb + "read_reference")[1])
+        self.assertEqual(json.loads(state.read_text()), {"calls": {"ask": 1, "search": 2}, "refused": 3})
+        self.out = self.out.parent / "unlimited"
+        self.run_arm("notebook", "", "--notebook-calls", "0")
+        last = rows(self.log)[-1]
+        self.assertTrue("hooks" not in settings(last) and "notebook calls" not in last["prompt"])
+
     def test_a_notebook_that_stays_down_costs_no_model_call(self) -> None:
         self.mcp.state["fail_after"] = 1  # up for the runner's first check, then down
         out = self.run_arm("notebook", "", "--notebook-wait", "0", "--max-attempts", "2", "--task-slug", SLUGS[1], "--rollout", "1")
